@@ -110,6 +110,40 @@ class State(object):
         self.name = name
         self.handler_func = self.handler_generator = None
         self.from_states = set([])
+        self._entry_reactions = []
+        self._exit_reactions = []
+
+    def add_entry_reaction(self, callback):
+        """Add an entry reaction to a state.
+
+        An entry reaction is executed every time a state is entered, i.e.
+        transitioned to."""
+        self._entry_reactions.append(callback)
+
+    def remove_entry_reaction(self, callback):
+        pos = -1
+        for i in range(len(self._entry_reactions)):
+            if self._entry_reactions[i] == callback:
+                pos = i
+                break
+        if pos >= 0:
+            del self._entry_reactions[pos]
+
+    def add_exit_reaction(self, callback):
+        """Add an exit reaction to a state.
+
+        An exit reaction is executed every time a state is left, i.e. a new
+        state is entered."""
+        self._exit_reactions.append(callback)
+
+    def remove_exit_reaction(self, callback):
+        pos = -1
+        for i in range(len(self._exit_reactions)):
+            if self._exit_reactions[i] == callback:
+                pos = i
+                break
+        if pos >= 0:
+            del self._exit_reactions[pos]
 
     def __repr__(self):
         return '<State: %s, handler_func=%s>' % (self.name, self.handler_func.func_name)
@@ -153,13 +187,22 @@ class FiniteStateMachine(object):
             self.initial_state = self.current_state = state
 
     def transition_to(self, to_state):
-        """ Transition to the to_state (i.e. set current_state to to_state). """
+        """ Transition to the to_state (i.e. set current_state to to_state).
+
+        This function first calls all exit reactions of the current state and
+        after that all entry reactions of the to_state."""
         if not isinstance(to_state, State):
             raise TypeError()
         if self.current_state not in to_state.from_states:
             raise InvalidStateTransition("Cannot transition from state %s to state %s" % (self.current_state.name, to_state.name))
 
+        for callback in self.current_state._exit_reactions:
+            callback()
+
         self.current_state = to_state
+
+        for callback in self.current_state._entry_reactions:
+            callback()
 
 
     def start(self):
@@ -193,9 +236,19 @@ def state_handler(f):
 
 if __name__ == '__main__':
     # define a simple three state state machine. A goes to B goes to C goes to A.
+    def cleanup():
+        print("Removing stuff")
+
     STATE_A = State('STATE_A')
+    STATE_A.add_entry_reaction(lambda: print("State A entered"))
+    STATE_A.add_exit_reaction(lambda: print("State A left"))
+    STATE_A.add_exit_reaction(cleanup)
     STATE_B = State('STATE_B')
+    STATE_B.add_entry_reaction(lambda: print("State B entered"))
+    STATE_B.add_exit_reaction(lambda: print("State B left"))
     STATE_C = State('STATE_C')
+    STATE_C.add_entry_reaction(lambda: print("State C entered"))
+    STATE_C.add_exit_reaction(lambda: print("State C left"))
 
     @state_handler
     def state_a_handler(fsm, event):
@@ -250,6 +303,11 @@ if __name__ == '__main__':
     fsm.add_state(STATE_B, from_states=(STATE_A), handler_func=state_b_handler)
     fsm.add_state(STATE_C, from_states=(STATE_B), handler_func=state_c_handler)
 
-    for event_list in (event_list_1, event_list_2, event_list_3):
+    print('\nTesting event_list %s' % event_list_1[0])
+    run_event_list(fsm, event_list_1[1])
+
+    STATE_A.remove_exit_reaction(cleanup)
+
+    for event_list in (event_list_2, event_list_3):
         print('\nTesting event_list %s' % event_list[0])
         run_event_list(fsm, event_list[1])
